@@ -50,6 +50,12 @@ flags.DEFINE_string(
     "output_dir", None,
     "The output directory where the model checkpoints will be written.")
 
+## Export setting
+flags.DEFINE_bool("do_export", False, "Whether to export model.")
+flags.DEFINE_string(
+    "export_dir", None,
+    "output path for exported pb")
+
 ## Other parameters
 
 flags.DEFINE_string(
@@ -570,6 +576,18 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
     else:
       tokens_b.pop()
 
+def serving_input_fn():
+  label_ids = tf.placeholder(tf.int32, [None], name='label_ids')
+  input_ids = tf.placeholder(tf.int32, [None, FLAGS.max_seq_length], name='input_ids')
+  input_mask = tf.placeholder(tf.int32, [None, FLAGS.max_seq_length], name='input_mask')
+  segment_ids = tf.placeholder(tf.int32, [None, FLAGS.max_seq_length], name='segment_ids')
+  input_fn = tf.estimator.export.build_raw_serving_input_receiver_fn({
+      'label_ids': label_ids,
+      'input_ids': input_ids,
+      'input_mask': input_mask,
+      'segment_ids': segment_ids,
+  })()
+  return input_fn
 
 def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
                  labels, num_labels, use_one_hot_embeddings):
@@ -793,9 +811,9 @@ def main(_):
   tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
                                                 FLAGS.init_checkpoint)
 
-  if not FLAGS.do_train and not FLAGS.do_eval and not FLAGS.do_predict:
+  if not FLAGS.do_train and not FLAGS.do_eval and not FLAGS.do_predict and not FLAGS.do_export:
     raise ValueError(
-        "At least one of `do_train`, `do_eval` or `do_predict' must be True.")
+        "At least one of `do_train`, `do_eval` or `do_predict' or 'do_export' must be True.")
 
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
@@ -971,6 +989,10 @@ def main(_):
         num_written_lines += 1
     assert num_written_lines == num_actual_predict_examples
 
+  if FLAGS.do_export:
+    tf.gfile.MakeDirs(FLAGS.export_dir)
+    estimator._export_to_tpu = False
+    estimator.export_savedmodel(FLAGS.export_dir, serving_input_fn)
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("data_dir")
